@@ -22,32 +22,16 @@ import org.jetbrains.kotlin.descriptors.SourceElement;
 import org.jetbrains.kotlin.load.java.JvmBytecodeBinaryVersion;
 import org.jetbrains.kotlin.load.kotlin.JvmMetadataVersion;
 import org.jetbrains.kotlin.name.ClassId;
-import org.jetbrains.kotlin.name.FqName;
 import org.jetbrains.kotlin.name.Name;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import static org.jetbrains.kotlin.load.java.JvmAnnotationNames.*;
 import static org.jetbrains.kotlin.load.kotlin.KotlinJvmBinaryClass.*;
 import static org.jetbrains.kotlin.load.kotlin.header.KotlinClassHeader.Kind.*;
 
 public class ReadKotlinClassHeaderAnnotationVisitor implements AnnotationVisitor {
-    private static final boolean IGNORE_OLD_METADATA = "true".equals(System.getProperty("kotlin.ignore.old.metadata"));
-
-    private static final Map<ClassId, KotlinClassHeader.Kind> HEADER_KINDS = new HashMap<ClassId, KotlinClassHeader.Kind>();
-
-    static {
-        // TODO: delete this at some point
-        HEADER_KINDS.put(ClassId.topLevel(new FqName("kotlin.jvm.internal.KotlinClass")), CLASS);
-        HEADER_KINDS.put(ClassId.topLevel(new FqName("kotlin.jvm.internal.KotlinFileFacade")), FILE_FACADE);
-        HEADER_KINDS.put(ClassId.topLevel(new FqName("kotlin.jvm.internal.KotlinMultifileClass")), MULTIFILE_CLASS);
-        HEADER_KINDS.put(ClassId.topLevel(new FqName("kotlin.jvm.internal.KotlinMultifileClassPart")), MULTIFILE_CLASS_PART);
-        HEADER_KINDS.put(ClassId.topLevel(new FqName("kotlin.jvm.internal.KotlinSyntheticClass")), SYNTHETIC_CLASS);
-    }
-
     private JvmMetadataVersion metadataVersion = null;
     private JvmBytecodeBinaryVersion bytecodeVersion = null;
     private String extraString = null;
@@ -99,25 +83,7 @@ public class ReadKotlinClassHeaderAnnotationVisitor implements AnnotationVisitor
     @Nullable
     @Override
     public AnnotationArgumentVisitor visitAnnotation(@NotNull ClassId classId, @NotNull SourceElement source) {
-        FqName fqName = classId.asSingleFqName();
-        if (fqName.equals(METADATA_FQ_NAME)) {
-            return new KotlinMetadataArgumentVisitor();
-        }
-
-        if (IGNORE_OLD_METADATA) return null;
-
-        if (headerKind != null) {
-            // Ignore all Kotlin annotations except the first found
-            return null;
-        }
-
-        KotlinClassHeader.Kind newKind = HEADER_KINDS.get(classId);
-        if (newKind != null) {
-            headerKind = newKind;
-            return new OldDeprecatedAnnotationArgumentVisitor();
-        }
-
-        return null;
+        return classId.asSingleFqName().equals(METADATA_FQ_NAME) ? new KotlinMetadataArgumentVisitor() : null;
     }
 
     @Override
@@ -193,77 +159,6 @@ public class ReadKotlinClassHeaderAnnotationVisitor implements AnnotationVisitor
                 @Override
                 protected void visitEnd(@NotNull String[] result) {
                     strings = result;
-                }
-            };
-        }
-
-        @Override
-        public void visitEnum(@NotNull Name name, @NotNull ClassId enumClassId, @NotNull Name enumEntryName) {
-        }
-
-        @Nullable
-        @Override
-        public AnnotationArgumentVisitor visitAnnotation(@NotNull Name name, @NotNull ClassId classId) {
-            return null;
-        }
-
-        @Override
-        public void visitEnd() {
-        }
-    }
-
-    private class OldDeprecatedAnnotationArgumentVisitor implements AnnotationArgumentVisitor {
-        @Override
-        public void visit(@Nullable Name name, @Nullable Object value) {
-            if (name == null) return;
-
-            String string = name.asString();
-            if ("version".equals(string)) {
-                if (value instanceof int[]) {
-                    metadataVersion = new JvmMetadataVersion((int[]) value);
-
-                    // If there's no bytecode binary version in the class file, we assume it to be equal to the metadata version
-                    if (bytecodeVersion == null) {
-                        bytecodeVersion = new JvmBytecodeBinaryVersion((int[]) value);
-                    }
-                }
-            }
-            else if ("multifileClassName".equals(string)) {
-                extraString = value instanceof String ? (String) value : null;
-            }
-        }
-
-        @Override
-        @Nullable
-        public AnnotationArrayArgumentVisitor visitArray(@NotNull Name name) {
-            String string = name.asString();
-            if ("data".equals(string) || "filePartClassNames".equals(string)) {
-                return dataArrayVisitor();
-            }
-            else if ("strings".equals(string)) {
-                return stringsArrayVisitor();
-            }
-            else {
-                return null;
-            }
-        }
-
-        @NotNull
-        private AnnotationArrayArgumentVisitor dataArrayVisitor() {
-            return new CollectStringArrayAnnotationVisitor() {
-                @Override
-                protected void visitEnd(@NotNull String[] data) {
-                    ReadKotlinClassHeaderAnnotationVisitor.this.data = data;
-                }
-            };
-        }
-
-        @NotNull
-        private AnnotationArrayArgumentVisitor stringsArrayVisitor() {
-            return new CollectStringArrayAnnotationVisitor() {
-                @Override
-                protected void visitEnd(@NotNull String[] data) {
-                    strings = data;
                 }
             };
         }
