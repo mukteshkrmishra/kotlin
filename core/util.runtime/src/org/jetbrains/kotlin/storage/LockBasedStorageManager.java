@@ -428,6 +428,10 @@ public class LockBasedStorageManager implements StorageManager {
                     if (throwable == error) {
                         throw storageManager.exceptionHandlingStrategy.handleException(throwable);
                     }
+                    if (throwable.getClass().getName().equals("org.jetbrains.kotlin.util.ReenteringLazyValueComputationException")) {
+                        cache.remove(input);
+                        throw storageManager.exceptionHandlingStrategy.handleException(throwable);
+                    }
 
                     Object oldValue = cache.put(input, WrappedValues.escapeThrowable(throwable));
                     if (oldValue != NotValue.COMPUTING) {
