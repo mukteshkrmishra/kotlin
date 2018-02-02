@@ -49,6 +49,8 @@ import org.jetbrains.org.objectweb.asm.Opcodes
 import org.jetbrains.org.objectweb.asm.Type
 import org.jetbrains.org.objectweb.asm.commons.InstructionAdapter
 import org.jetbrains.org.objectweb.asm.commons.Method
+import org.jetbrains.org.objectweb.asm.tree.AbstractInsnNode
+import org.jetbrains.org.objectweb.asm.tree.MethodInsnNode
 import org.jetbrains.org.objectweb.asm.tree.MethodNode
 
 const val COROUTINE_LABEL_FIELD_NAME = "label"
@@ -79,6 +81,13 @@ private val INTERNAL_COROUTINE_INTRINSICS_OWNER_INTERNAL_NAME =
 
 private val NORMALIZE_CONTINUATION_METHOD_NAME = "normalizeContinuation"
 private val GET_CONTEXT_METHOD_NAME = "getContext"
+
+/* There are contexts when the continuation does not yet exist, for example, in inline lambdas, which are going to
+ * be inlined into suspendable functions.
+ * In such cases we just generate the marker which is going to be replaced with real continuation on generating state machine.
+ * See [isFakeContinuation] and [CoroutineTransformerMethodVisitor] for more info.
+ */
+internal val FAKE_CONTINUATION_METHOD_NAME = "fakeContinuation"
 
 data class ResolvedCallWithRealDescriptor(val resolvedCall: ResolvedCall<*>, val fakeContinuationExpression: KtExpression)
 
@@ -326,6 +335,14 @@ fun createMethodNodeForIntercepted(
     return node
 }
 
+internal fun isFakeContinuation(insn: AbstractInsnNode): Boolean {
+    if (insn.opcode != Opcodes.INVOKESTATIC) return false
+    insn as MethodInsnNode
+    return insn.owner == CONTINUATION_ASM_TYPE.internalName &&
+            insn.name == FAKE_CONTINUATION_METHOD_NAME &&
+            insn.desc == Type.getMethodDescriptor(CONTINUATION_ASM_TYPE)
+}
+
 fun createMethodNodeForCoroutineContext(functionDescriptor: FunctionDescriptor): MethodNode {
     assert(functionDescriptor.isBuiltInCoroutineContext()) {
         "functionDescriptor must be kotlin.coroutines.intrinsics.coroutineContext property getter"
@@ -336,11 +353,17 @@ fun createMethodNodeForCoroutineContext(functionDescriptor: FunctionDescriptor):
             Opcodes.ASM5,
             Opcodes.ACC_STATIC,
             "fake",
-            Type.getMethodDescriptor(COROUTINE_CONTEXT_ASM_TYPE, CONTINUATION_ASM_TYPE),
+            Type.getMethodDescriptor(COROUTINE_CONTEXT_ASM_TYPE),
             null, null
         )
 
-    node.visitVarInsn(Opcodes.ALOAD, 0)
+    node.visitMethodInsn(
+        Opcodes.INVOKESTATIC,
+        CONTINUATION_ASM_TYPE.internalName,
+        FAKE_CONTINUATION_METHOD_NAME,
+        Type.getMethodDescriptor(CONTINUATION_ASM_TYPE),
+        true
+    )
 
     node.visitMethodInsn(
         Opcodes.INVOKEINTERFACE,
