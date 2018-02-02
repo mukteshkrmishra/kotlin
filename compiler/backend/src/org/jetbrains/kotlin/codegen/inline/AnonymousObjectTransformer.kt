@@ -28,6 +28,7 @@ import org.jetbrains.kotlin.load.kotlin.FileBasedKotlinClass
 import org.jetbrains.kotlin.load.kotlin.JvmNameResolver
 import org.jetbrains.kotlin.load.kotlin.header.KotlinClassHeader
 import org.jetbrains.kotlin.load.kotlin.header.ReadKotlinClassHeaderAnnotationVisitor
+import org.jetbrains.kotlin.protobuf.MessageLite
 import org.jetbrains.kotlin.resolve.jvm.diagnostics.JvmDeclarationOrigin
 import org.jetbrains.kotlin.resolve.jvm.diagnostics.JvmDeclarationOrigin.Companion.NO_ORIGIN
 import org.jetbrains.kotlin.serialization.jvm.JvmProtoBuf
@@ -182,11 +183,20 @@ class AnonymousObjectTransformer(
     }
 
     private fun transformMetadata(header: KotlinClassHeader, classBuilder: ClassBuilder) {
-        val (nameResolver, classProto) = JvmProtoBufUtil.readClassDataFrom(header.data!!, header.strings!!)
-        val newStringTable = JvmStringTable(state.typeMapper, nameResolver as JvmNameResolver)
-        val newProto = classProto.toBuilder().apply {
-            setExtension(JvmProtoBuf.anonymousObjectOriginName, newStringTable.getStringIndex(oldObjectType.internalName))
-        }.build()
+        val newProto: MessageLite
+        val newStringTable: JvmStringTable
+
+        if (header.kind == KotlinClassHeader.Kind.CLASS) {
+            val (nameResolver, classProto) = JvmProtoBufUtil.readClassDataFrom(header.data!!, header.strings!!)
+            newStringTable = JvmStringTable(state.typeMapper, nameResolver as JvmNameResolver)
+            newProto = classProto.toBuilder().apply {
+                setExtension(JvmProtoBuf.anonymousObjectOriginName, newStringTable.getStringIndex(oldObjectType.internalName))
+            }.build()
+        } else if (header.kind == KotlinClassHeader.Kind.SYNTHETIC_CLASS) {
+            // TODO: transform metadata for synthetic classes
+            return
+        } else return
+
         writeKotlinMetadata(classBuilder, state, header.kind, header.extraInt) { av ->
             AsmUtil.writeAnnotationData(av, newProto, newStringTable)
         }
